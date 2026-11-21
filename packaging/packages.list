@@ -1,0 +1,98 @@
+# ImmortalWrt 25.12 / apk 生态（不是 24.10 的 opkg 生态！）
+# 一行一个包，`-` 前缀 = 从默认包里剔除；`#` 开头为注释。
+# 环境：x86_64 QEMU 虚拟机 / 旁路由 10.0.0.3 / 单网卡 / 与 10.0.0.1 主路由共存
+# 说明：带 - 的名字如果在新版 ImageBuilder 里报「无此包」，说明该包已不再默认安装，删掉那一行即可。
+
+# ---- 必须保留：系统骨架 ----
+base-files
+libc
+libgcc
+logd
+mtd
+netifd
+nftables
+odhcp6c
+odhcpd-ipv6only
+procd-ujail
+uci
+uclient-fetch
+urandom-seed
+urngd
+ca-bundle
+libustream-openssl
+apk-openssl
+dropbear
+firewall4
+dnsmasq-full
+fstools
+block-mount
+
+# ---- 管理界面 ----
+luci
+luci-compat
+
+# ---- ImmortalWrt 定制 ----
+autocore
+default-settings-chn
+
+# ---- VM 网卡：只留 QEMU 可用的两种（virtio 在内核里内建，无需包）----
+kmod-e1000
+kmod-e1000e
+
+# ---- 转发/优化 ----
+kmod-nft-offload
+
+# ---- 磁盘工具：VM 扩盘后长 overlay 用 ----
+fdisk
+partx-utils
+
+# ---- 引导：BIOS 启动的 sysupgrade 需要（UEFI 可删）----
+grub2-bios-setup
+
+# ---- 代理 ----
+luci-app-openclash
+
+# ---- 剔除：物理网卡驱动 ----
+-kmod-8139cp
+-kmod-8139too
+-kmod-pcnet32
+-kmod-tulip
+-kmod-r8101
+-kmod-r8125
+-kmod-r8126
+-kmod-r8168
+-kmod-i40e
+-kmod-igb
+-kmod-igbvf
+-kmod-igc
+-kmod-ixgbe
+-kmod-ixgbevf
+-kmod-vmxnet3
+-kmod-amazon-ena
+-kmod-amd-xgbe
+-kmod-bnx2
+-kmod-dwmac-intel
+-kmod-forcedeth
+-kmod-tg3
+
+# ---- 剔除：USB 与输入 ----
+-kmod-usb-hid
+-kmod-usb-net
+-kmod-usb-net-asix
+-kmod-usb-net-asix-ax88179
+-kmod-usb-net-rtl8150
+-kmod-usb-net-rtl8152-vendor
+-automount
+
+# ---- 剔除：用不到的文件系统 ----
+-mkf2fs
+-kmod-fs-f2fs
+-kmod-fs-vfat
+
+# ---- 剔除：VM 用不到的其他默认包 ----
+-kmod-button-hotplug
+-kmod-nf-nathelper
+-i915-firmware-dmc
+-kmod-drm-i915
+-ppp
+-ppp-mod-pppoe
