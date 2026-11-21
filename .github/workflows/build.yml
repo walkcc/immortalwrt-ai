@@ -43,14 +43,18 @@ jobs:
           ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${ROOT_PASSWORD:-}" ]; then
-            echo "::error::缺少 Secret ROOT_PASSWORD，请在 Settings → Secrets and variables → Actions 添加后重跑"
-            exit 1
-          fi
           SCRIPT=files/etc/uci-defaults/99-default-script
           chmod 0755 "$SCRIPT"
-          sed -i "s|__ROOT_PASSWORD__|${ROOT_PASSWORD}|g" "$SCRIPT"
-          grep -q 'passwd root' "$SCRIPT"
+          if [ -z "${ROOT_PASSWORD:-}" ]; then
+            # 没配 Secret 也照常构建，但镜像不带 root 密码（只能 LuCI 空密码登录，SSH 进不去），
+            # 这种构建会被标成 prerelease，避免误刷。
+            echo "::warning::未设置 Secret ROOT_PASSWORD：本次镜像不写入 root 密码，仅用于验证流水线"
+            echo "PASSWORD_STATUS=missing" >> "$GITHUB_ENV"
+          else
+            sed -i "s|__ROOT_PASSWORD__|${ROOT_PASSWORD}|g" "$SCRIPT"
+            grep -q 'passwd root' "$SCRIPT"
+            echo "PASSWORD_STATUS=set" >> "$GITHUB_ENV"
+          fi
 
       - name: ImageBuilder 构建
         run: |
@@ -85,6 +89,7 @@ jobs:
             echo "- ImageBuilder: \`$IB_NAME\`"
             echo "- 包清单: \`packaging/packages.list\`"
             echo "- 首次启动脚本: \`files/etc/uci-defaults/99-default-script\`"
+            echo "- root 密码: $PASSWORD_STATUS（missing = 未配 Secret，别刷）"
             echo ""
             echo "### 产物"
             ls -lh out | sed 's/^/    /'
@@ -103,3 +108,4 @@ jobs:
             - 首次启动脚本: `files/etc/uci-defaults/99-default-script`
           files: out/*
           fail_on_unmatched_files: true
+          prerelease: ${{ env.PASSWORD_STATUS != 'set' }}
