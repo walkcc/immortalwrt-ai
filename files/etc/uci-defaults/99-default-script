@@ -1,0 +1,30 @@
+#!/bin/sh
+# 首次启动执行一次（ImageBuilder 的 FILES= 注入到 /etc/uci-defaults/）
+# 仅当 overlay 为空时运行；sysupgrade 保留配置升级不会再次执行。
+#
+# __ROOT_PASSWORD__ 由 GitHub Actions 用仓库 Secret ROOT_PASSWORD 替换。
+# 如果没有被替换，说明是在本地/URL 方式直接用这个文件，此时跳过改密，
+# 避免把占位符当成真实密码写进固件。
+
+set -u
+
+ROOT_PASS="__ROOT_PASSWORD__"
+
+# 旁路由：LAN 10.0.0.3/24，网关与 DNS 指向主路由 10.0.0.1
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='10.0.0.3'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.gateway='10.0.0.1'
+uci set network.lan.dns='10.0.0.1'
+uci commit network
+/etc/init.d/network restart
+
+# root 密码
+if [ "$ROOT_PASS" != "__ROOT_PASSWORD__" ] && [ -n "$ROOT_PASS" ]; then
+	printf '%s\n%s\n' "$ROOT_PASS" "$ROOT_PASS" | passwd root >/dev/null 2>&1
+fi
+
+# OpenClash 开机自启（未装该包时不报错）
+[ -x /etc/init.d/openclash ] && /etc/init.d/openclash enable
+
+exit 0
