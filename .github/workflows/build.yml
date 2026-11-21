@@ -1,0 +1,105 @@
+name: ImmortalWrt x86_64 周构建
+
+# 每周从 ImmortalWrt 官方 snapshot 拉取最新 ImageBuilder 重新出镜像，
+# 并把「包清单」与「首次启动脚本」注入固件。
+on:
+  schedule:
+    - cron: '0 19 * * 6' # UTC 周六 19:00 = 北京时间周日 03:00
+  workflow_dispatch:
+
+concurrency:
+  group: build-x86-64
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: 检出本仓库（配置与脚本）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 拉取最新 ImageBuilder
+        run: |
+          set -euo pipefail
+          BASE="https://downloads.immortalwrt.org/snapshots/targets/x86/64"
+          NAME=$(curl -fsSL "$BASE/" | grep -oE 'immortalwrt-imagebuilder-x86-64\.Linux-x86_64\.tar\.zst' | head -n1)
+          test -n "$NAME"
+          echo "使用：$NAME"
+          curl -fSL --retry 5 --retry-delay 5 -o /tmp/ib.tar.zst "$BASE/$NAME"
+          command -v zstd >/dev/null || sudo apt-get install -y zstd
+          mkdir -p ib
+          zstd -dc /tmp/ib.tar.zst | tar -x -C ib --strip-components=1
+          echo "IB=$PWD/ib" >> "$GITHUB_ENV"
+          echo "IB_NAME=$NAME" >> "$GITHUB_ENV"
+
+      - name: 注入 root 密码（来自仓库 Secret）
+        env:
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ROOT_PASSWORD:-}" ]; then
+            echo "::error::缺少 Secret ROOT_PASSWORD，请在 Settings → Secrets and variables → Actions 添加后重跑"
+            exit 1
+          fi
+          SCRIPT=files/etc/uci-defaults/99-default-script
+          chmod 0755 "$SCRIPT"
+          sed -i "s|__ROOT_PASSWORD__|${ROOT_PASSWORD}|g" "$SCRIPT"
+          grep -q 'passwd root' "$SCRIPT"
+
+      - name: ImageBuilder 构建
+        run: |
+          set -euo pipefail
+          STAMP=$(date -u +%Y%m%d)
+          PKG_LIST=$(grep -hvE '^[[:space:]]*(#|$)' packaging/packages.list | tr '\n' ' ')
+          echo "包清单：$PKG_LIST"
+          cd "$IB"
+          make image \
+            PROFILE=generic \
+            PACKAGES="$PKG_LIST" \
+            FILES="$GITHUB_WORKSPACE/files" \
+            EXTRA_IMAGE_NAME="ai-$STAMP" \
+            ROOTFS_PARTSIZE=1024
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: 收集产物
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          SRC="$IB/bin/targets/x86/64"
+          cp -v "$SRC"/*.img.gz "$SRC"/*.manifest "$SRC"/sha256sums out/ 2>/dev/null || \
+            cp -v "$SRC"/*.img.gz "$SRC"/*.manifest out/
+          ( cd out && sha256sum ./* > SHA256SUMS.txt )
+          ls -lh out
+
+      - name: 写入构建摘要
+        run: |
+          {
+            echo "## ImmortalWrt x86/64 $STAMP"
+            echo ""
+            echo "- ImageBuilder: \`$IB_NAME\`"
+            echo "- 包清单: \`packaging/packages.list\`"
+            echo "- 首次启动脚本: \`files/etc/uci-defaults/99-default-script\`"
+            echo ""
+            echo "### 产物"
+            ls -lh out | sed 's/^/    /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: weekly-${{ env.STAMP }}
+          name: ImmortalWrt x86/64 ${{ env.STAMP }}
+          body: |
+            每周自动构建（snapshot ImageBuilder）。
+
+            - ImageBuilder: `${{ env.IB_NAME }}`
+            - 包清单: `packaging/packages.list`
+            - 首次启动脚本: `files/etc/uci-defaults/99-default-script`
+          files: out/*
+          fail_on_unmatched_files: true
