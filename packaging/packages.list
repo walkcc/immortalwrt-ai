@@ -1,9 +1,13 @@
-# ImmortalWrt 25.12 / apk 生态（不是 24.10 的 opkg 生态！）
+# ImmortalWrt snapshot（apk 生态，25.12 线；不是 24.10 的 opkg）
 # 一行一个包，`-` 前缀 = 从默认包里剔除；`#` 开头为注释。
-# 环境：x86_64 QEMU 虚拟机 / 旁路由 10.0.0.3 / 单网卡 / 与 10.0.0.1 主路由共存
-# 说明：带 - 的名字如果在新版 ImageBuilder 里报「无此包」，说明该包已不再默认安装，删掉那一行即可。
+# 环境：x86_64 QEMU 虚拟机 / 旁路由 10.0.0.3 / 单网卡（e1000e 或 virtio）/ 与 10.0.0.1 主路由共存
+#
+# 已按 snapshot(2026-11-17, kernel 6.18.60) 的 default_packages / device_packages 核对：
+#   - autocore、block-mount 在 target 源；其余在 packages 源；全部存在。
+#   - snapshot 默认已不含 luci，所以 luci 系要显式列出。
+#   - snapshot 默认新增 video-support（元包，会拉 i915/amdgpu 固件），必须一并剔除。
 
-# ---- 必须保留：系统骨架 ----
+# ---- 系统骨架 ----
 base-files
 libc
 libgcc
@@ -27,9 +31,10 @@ dnsmasq-full
 fstools
 block-mount
 
-# ---- 管理界面 ----
+# ---- 管理界面（luci 元包 = luci-light + luci-app-package-manager）----
 luci
 luci-compat
+luci-app-firewall
 
 # ---- ImmortalWrt 定制 ----
 autocore
@@ -89,7 +94,8 @@ luci-app-openclash
 -kmod-fs-f2fs
 -kmod-fs-vfat
 
-# ---- 剔除：VM 用不到的其他默认包 ----
+# ---- 剔除：VM 用不到的其它默认包 ----
+-video-support
 -kmod-button-hotplug
 -kmod-nf-nathelper
 -i915-firmware-dmc
