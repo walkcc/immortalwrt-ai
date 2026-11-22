@@ -59,6 +59,23 @@ jobs:
           echo "IB_NAME=$NAME" >> "$GITHUB_ENV"
           echo "IB_VERSION=$VER" >> "$GITHUB_ENV"
 
+      - name: 打上游 bug 兜底补丁
+        run: |
+          set -euo pipefail
+          # openwrt-25.12 / master 的 include/rootfs.mk 里这行：
+          #   $(if $(IB),,awk -i inplace ...) ;
+          # 在 ImageBuilder（IB=1）下会展开成空命令，生成
+          #   if [ -z "y" ]; then  ; sed -i ... ; fi
+          # → bash: syntax error near unexpected token `;'
+          # 把空命令替换成 ':'（no-op）即可。
+          F=ib/include/rootfs.mk
+          test -f "$F"
+          if grep -q '\$(if \$(IB),,awk' "$F"; then
+            sed -i 's/\$(if \$(IB),,awk/$(if $(IB),:,awk/' "$F"
+            echo "已应用 rootfs.mk apk+IB 兜底补丁"
+          fi
+          grep -q '\$(if \$(IB),:,awk' "$F" || { echo "::error::兜底补丁未生效，上游模板可能已变化"; exit 1; }
+
       - name: 注入 root 密码（来自仓库 Secret）
         env:
           ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
