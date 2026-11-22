@@ -14,6 +14,10 @@ on:
         description: 指定版本（留空 = 自动取最新 25.12.x）
         required: false
         default: ''
+      mihomo:
+        description: 内置的 mihomo 内核版本（如 v1.19.34；留空 = 最新稳定版）
+        required: false
+        default: ''
 
 concurrency:
   group: build-x86-64
@@ -89,6 +93,34 @@ jobs:
           fi
           grep -q '\$(if \$(IB),:,awk' "$F" || { echo "::error::兜底补丁未生效，上游模板可能已变化"; exit 1; }
 
+      - name: 内置 mihomo 内核（OpenClash 的 clash_meta）
+        env:
+          MIHOMO_INPUT: ${{ github.event.inputs.mihomo }}
+        run: |
+          set -euo pipefail
+          # OpenClash 只认 /etc/openclash/core/clash_meta（见 openclash_core.sh），
+          # 内置后配合首次启动脚本里的 core_version=0 关掉它的自动下载。
+          TAG="${MIHOMO_INPUT:-}"
+          if [ -z "$TAG" ]; then
+            TAG=$(curl -fsSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+              | grep -m1 '"tag_name"' | cut -d '"' -f4)
+          fi
+          test -n "$TAG" || { echo "::error::解析 mihomo 版本失败"; exit 1; }
+          echo "mihomo 版本：$TAG"
+          URL="https://github.com/MetaCubeX/mihomo/releases/download/$TAG/mihomo-linux-amd64-$TAG.gz"
+          echo "下载：$URL"
+          curl -fSL --retry 5 --retry-delay 5 -o /tmp/mihomo.gz "$URL"
+          gzip -t /tmp/mihomo.gz
+          gunzip -f /tmp/mihomo.gz
+          CORE_DIR=files/etc/openclash/core
+          mkdir -p "$CORE_DIR"
+          install -m 0755 /tmp/mihomo "$CORE_DIR/clash_meta"
+          "$CORE_DIR/clash_meta" -v | head -n1
+          echo "MIHOMO_TAG=$TAG" >> "$GITHUB_ENV"
+          {
+            echo "- mihomo 内核: \`$(head -n1 <(files/etc/openclash/core/clash_meta -v))\` → \`/etc/openclash/core/clash_meta\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 注入 root 密码（来自仓库 Secret）
         env:
           ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
@@ -130,6 +162,22 @@ jobs:
           fi
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
 
+      - name: 校验 mihomo 已进镜像
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq squashfs-tools
+          ROOTFS="$IB/build_dir/target-x86_64_musl/linux-x86_64/root.squashfs"
+          test -f "$ROOTFS" || { echo "::error::找不到 root.squashfs"; exit 1; }
+          unsquashfs -ll "$ROOTFS" | grep -E 'etc/openclash/core/clash_meta' | tee /tmp/core_line
+          test -s /tmp/core_line || { echo "::error::镜像里没有 /etc/openclash/core/clash_meta"; exit 1; }
+          {
+            echo ""
+            echo "### 镜像内内核校验"
+            echo '```'
+            cat /tmp/core_line
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 失败时输出日志尾巴
         if: failure()
         run: |
@@ -161,6 +209,7 @@ jobs:
             echo "- ImageBuilder: \`$IB_NAME\`"
             echo "- 包清单: \`packaging/packages.list\`"
             echo "- 首次启动脚本: \`files/etc/uci-defaults/99-default-script\`"
+            echo "- mihomo 内核: \`$MIHOMO_TAG\` → /etc/openclash/core/clash_meta"
             echo "- root 密码: $PASSWORD_STATUS（missing = 未配 Secret，别刷）"
             echo ""
             echo "### 产物"
@@ -178,6 +227,7 @@ jobs:
             - ImageBuilder: `${{ env.IB_NAME }}`
             - 包清单: `packaging/packages.list`
             - 首次启动脚本: `files/etc/uci-defaults/99-default-script`
+            - mihomo 内核: `${{ env.MIHOMO_TAG }}` → `/etc/openclash/core/clash_meta`
             - root 密码: ${{ env.PASSWORD_STATUS }}（missing = 未配 Secret，别刷）
           files: out/*
           fail_on_unmatched_files: true
