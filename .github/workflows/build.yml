@@ -58,13 +58,14 @@ jobs:
           if [ -n "${OVERRIDE:-}" ]; then
             VER="$OVERRIDE"
           else
-            VER=$(curl -fsSL https://downloads.immortalwrt.org/releases/ \
-              | grep -oE "${CHANNEL//./\\.}\.[0-9]+/" | tr -d '/' | sort -V | tail -n1)
+            curl -fsSL -o /tmp/releases.html https://downloads.immortalwrt.org/releases/
+            VER=$(grep -oE "${CHANNEL//./\\.}\.[0-9]+/" /tmp/releases.html | tr -d '/' | sort -V | tail -n1)
           fi
           test -n "$VER" || { echo "::error::没找到 ${CHANNEL} 的任何稳定版本"; exit 1; }
           echo "目标版本：$VER"
           BASE="https://downloads.immortalwrt.org/releases/$VER/targets/x86/64"
-          NAME=$(curl -fsSL "$BASE/" | grep -oE "immortalwrt-imagebuilder-$VER-x86-64\.Linux-x86_64\.tar\.zst" | head -n1)
+          curl -fsSL -o /tmp/ib_index.html "$BASE/"
+          NAME=$(grep -oE "immortalwrt-imagebuilder-$VER-x86-64\.Linux-x86_64\.tar\.zst" /tmp/ib_index.html | awk 'NR==1{print;exit}')
           test -n "$NAME" || { echo "::error::$VER 没有 ImageBuilder 压缩包"; exit 1; }
           echo "使用：$NAME"
           curl -fSL --retry 5 --retry-delay 5 -o /tmp/ib.tar.zst "$BASE/$NAME"
@@ -100,10 +101,11 @@ jobs:
           set -euo pipefail
           # OpenClash 只认 /etc/openclash/core/clash_meta（见 openclash_core.sh），
           # 内置后配合首次启动脚本里的 core_version=0 关掉它的自动下载。
+          # 注意：不要用 `curl ... | grep -m1` 或 `... | head`，pipefail 下会因 SIGPIPE 整步失败
           TAG="${MIHOMO_INPUT:-}"
           if [ -z "$TAG" ]; then
-            TAG=$(curl -fsSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
-              | grep -m1 '"tag_name"' | cut -d '"' -f4)
+            curl -fsSL -o /tmp/mihomo_release.json https://api.github.com/repos/MetaCubeX/mihomo/releases/latest
+            TAG=$(awk -F'"' '/"tag_name"/ {print $4; exit}' /tmp/mihomo_release.json)
           fi
           test -n "$TAG" || { echo "::error::解析 mihomo 版本失败"; exit 1; }
           echo "mihomo 版本：$TAG"
@@ -115,11 +117,11 @@ jobs:
           CORE_DIR=files/etc/openclash/core
           mkdir -p "$CORE_DIR"
           install -m 0755 /tmp/mihomo "$CORE_DIR/clash_meta"
-          "$CORE_DIR/clash_meta" -v | head -n1
+          "$CORE_DIR/clash_meta" -v > /tmp/mihomo_v.txt 2>&1 || { echo "::error::内置内核无法执行"; cat /tmp/mihomo_v.txt; exit 1; }
+          CORE_VER=$(awk 'NR==1{print;exit}' /tmp/mihomo_v.txt)
+          echo "$CORE_VER"
           echo "MIHOMO_TAG=$TAG" >> "$GITHUB_ENV"
-          {
-            echo "- mihomo 内核: \`$(head -n1 <(files/etc/openclash/core/clash_meta -v))\` → \`/etc/openclash/core/clash_meta\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "- mihomo 内核: \`$CORE_VER\` → \`/etc/openclash/core/clash_meta\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 注入 root 密码（来自仓库 Secret）
         env:
