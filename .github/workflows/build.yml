@@ -32,6 +32,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: 清理磁盘（x86 会生成多个 1.1GB 的镜像）
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          df -h /
+
       - name: 安装构建依赖
         run: |
           sudo apt-get update -qq
@@ -107,13 +114,34 @@ jobs:
           PKG_LIST=$(grep -hvE '^[[:space:]]*(#|$)' packaging/packages.list | tr '\n' ' ')
           echo "包清单：$PKG_LIST"
           cd "$IB"
+          set +e
           make image \
             PROFILE=generic \
             PACKAGES="$PKG_LIST" \
             FILES="$GITHUB_WORKSPACE/files" \
             EXTRA_IMAGE_NAME="ai-$STAMP" \
-            ROOTFS_PARTSIZE=1024
+            ROOTFS_PARTSIZE=1024 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::make image 失败（rc=$rc），详见 /tmp/build.log 与 job summary"
+            df -h / || true
+            exit "$rc"
+          fi
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: 失败时输出日志尾巴
+        if: failure()
+        run: |
+          {
+            echo "## 构建失败，日志最后 100 行"
+            echo '```'
+            tail -n 100 /tmp/build.log 2>/dev/null || echo "(没有 /tmp/build.log)"
+            echo '```'
+            echo '```'
+            df -h / || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 收集产物
         run: |
