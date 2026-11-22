@@ -32,6 +32,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: 安装构建依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-utils zstd
+          qemu-img --version | head -1
+
       - name: 拉取 ImageBuilder（最新 25.12.x 稳定版）
         env:
           CHANNEL: '25.12'
@@ -114,7 +120,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           SRC="$IB/bin/targets/x86/64"
-          cp -v "$SRC"/*.img.gz "$SRC"/*.manifest "$SRC"/sha256sums out/ 2>/dev/null || \
+          cp -v "$SRC"/*.img.gz "$SRC"/*.qcow2 "$SRC"/*.manifest "$SRC"/sha256sums out/ 2>/dev/null || \
             cp -v "$SRC"/*.img.gz "$SRC"/*.manifest out/
           ( cd out && sha256sum ./* > SHA256SUMS.txt )
           ls -lh out
