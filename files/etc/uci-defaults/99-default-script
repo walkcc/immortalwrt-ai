@@ -24,7 +24,15 @@ if [ "$ROOT_PASS" != "__ROOT_PASSWORD__" ] && [ -n "$ROOT_PASS" ]; then
 	printf '%s\n%s\n' "$ROOT_PASS" "$ROOT_PASS" | passwd root >/dev/null 2>&1
 fi
 
-# OpenClash 开机自启（未装该包时不报错）
-[ -x /etc/init.d/openclash ] && /etc/init.d/openclash enable
+# OpenClash：开机自启 + 使用镜像内置的 mihomo 内核
+if [ -x /etc/init.d/openclash ]; then
+	# core_type=Meta 走 /etc/openclash/core/clash_meta；
+	# core_version=0 让 OpenClash 跳过「按版本号自动下载内核」，
+	# 否则它发现内置内核版本号与云端不一致，会每次尝试去 GitHub 抓自己的 core。
+	uci set openclash.config.core_type='Meta'
+	uci set openclash.config.core_version='0'
+	uci commit openclash
+	/etc/init.d/openclash enable
+fi
 
 exit 0
